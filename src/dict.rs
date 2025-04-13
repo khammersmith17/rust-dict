@@ -2,11 +2,12 @@ use std::cmp::{PartialEq, PartialOrd};
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
-use std::iter::Iterator;
+use std::iter::{IntoIterator, Iterator};
+use std::vec::IntoIter;
 
 /// An impelementation of Python style dict
 /// An ordered map that can be indexed
-
+#[derive(Debug)]
 pub struct Dictionary<K, V> {
     len: usize,
     capacity: usize,
@@ -28,6 +29,43 @@ where
         }
         output.push_str("}");
         write!(f, "{}", output)
+    }
+}
+
+impl<K, V> Clone for Dictionary<K, V>
+where
+    K: Copy + Clone,
+    V: Copy + Clone,
+{
+    fn clone(&self) -> Self {
+        Dictionary {
+            len: self.len.clone(),
+            capacity: self.capacity.clone(),
+            keys: self.keys.clone(),
+            key_map: self.key_map.clone(),
+            values: self.values.clone(),
+        }
+    }
+}
+
+impl<
+        K: PartialOrd + PartialEq + Hash + Eq + Clone + Ord + Copy,
+        V: Clone + Ord + PartialEq + PartialOrd + Eq,
+    > PartialEq for Dictionary<K, V>
+{
+    fn eq(&self, rhs: &Self) -> bool {
+        if self.values != rhs.values {
+            return false;
+        }
+
+        if self.keys != rhs.keys {
+            return false;
+        }
+
+        if self.key_map != rhs.key_map {
+            return false;
+        }
+        true
     }
 }
 
@@ -267,11 +305,123 @@ impl<
         // recompute the key value index map
         self.recompute_map();
     }
+
+    pub fn iter(self) -> DictIter<K, V> {
+        DictIter {
+            key_iter: self.keys.into_iter(),
+            val_iter: self.values.into_iter(),
+        }
+    }
+}
+
+impl<K, V> Into<DictIter<K, V>> for Dictionary<K, V> {
+    fn into(self) -> DictIter<K, V> {
+        DictIter {
+            key_iter: self.keys.into_iter(),
+            val_iter: self.values.into_iter(),
+        }
+    }
+}
+
+pub struct DictIter<K, V> {
+    key_iter: IntoIter<K>,
+    val_iter: IntoIter<V>,
+}
+
+// Gets collect for free here
+// collect will return a Vec<(K,V)>
+impl<'a, K, V> Iterator for DictIter<K, V> {
+    type Item = (K, V);
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_key = self.key_iter.next();
+        let next_val = self.val_iter.next();
+        debug_assert!(
+            (next_key.is_some() && next_val.is_some())
+                || (next_key.is_none() && next_val.is_none())
+        );
+        if next_key.is_some() {
+            let Some(k) = next_key else {
+                return None;
+            };
+            let Some(v) = next_val else { return None };
+            Some((k, v))
+        } else {
+            None
+        }
+    }
+}
+
+impl<
+        K: PartialOrd + PartialEq + Hash + Eq + Clone + Ord + Copy,
+        V: Clone + Ord + PartialEq + PartialOrd + Eq,
+    > Into<Dictionary<K, V>> for DictIter<K, V>
+{
+    fn into(self) -> Dictionary<K, V> {
+        // utility to go back to the Dictionary
+        debug_assert_eq!(self.key_iter.len(), self.val_iter.len());
+        let len = self.key_iter.len();
+        let capacity = (len as f32 * 1.1_f32) as usize;
+        let mut keys: Vec<K> = Vec::with_capacity(capacity);
+        let mut values: Vec<V> = Vec::with_capacity(capacity);
+        let mut key_map: HashMap<K, usize> = HashMap::with_capacity(capacity);
+
+        // iter through self and collect the the items to reconstruct the Dictionary
+        for (i, (key, value)) in self.enumerate() {
+            keys.push(key);
+            values.push(value);
+            key_map.insert(key, i);
+        }
+        Dictionary {
+            len,
+            capacity,
+            keys,
+            key_map,
+            values,
+        }
+    }
+}
+
+impl<K, V> IntoIterator for Dictionary<K, V> {
+    type Item = (K, V);
+    type IntoIter = DictIter<K, V>;
+    fn into_iter(self) -> DictIter<K, V> {
+        DictIter {
+            key_iter: self.keys.into_iter(),
+            val_iter: self.values.into_iter(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dictiter_to_dictionary() {
+        let mut dict = Dictionary::<i32, String>::new();
+        dict.push_back(1, "my_string".into());
+        dict.push_back(2, "my_string2".into());
+
+        let mut dict2 = Dictionary::<i32, String>::new();
+        dict2.push_back(1, "my_string".into());
+        dict2.push_back(2, "my_string2".into());
+
+        let dict2iter = dict2.into_iter();
+
+        let dict2: Dictionary<i32, String> = dict2iter.into();
+        assert_eq!(dict, dict2);
+    }
+
+    #[test]
+    fn test_iter() {
+        let mut dict = Dictionary::<i32, String>::new();
+        dict.push_back(1, "my_string".into());
+        dict.push_back(2, "my_string2".into());
+
+        let mut dict_iter = dict.into_iter();
+        assert_eq!(dict_iter.next(), Some((1, "my_string".to_string())));
+        assert_eq!(dict_iter.next(), Some((2, "my_string2".to_string())));
+    }
 
     #[test]
     fn new_default() {
