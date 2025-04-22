@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
 use std::iter::{IntoIterator, Iterator};
+use std::slice::{Iter, IterMut};
 use std::vec::IntoIter;
 
 /// An impelementation of Python style dict
@@ -290,12 +291,8 @@ impl<
                 if self.values[j] > self.values[j + 1] {
                     swapped = true;
                     // swap both keys and values
-                    let temp_val = self.values[j].to_owned();
-                    let temp_key = self.keys[j].to_owned();
-                    self.values[j] = self.values[j + 1].to_owned();
-                    self.keys[j] = self.keys[j + 1].to_owned();
-                    self.values[j + 1] = temp_val;
-                    self.keys[j + 1] = temp_key;
+                    self.keys.swap(j, j + 1);
+                    self.values.swap(j, j + 1);
                 }
             }
             if !swapped {
@@ -306,47 +303,54 @@ impl<
         self.recompute_map();
     }
 
-    pub fn iter(self) -> DictIter<K, V> {
+    pub fn iter<'a>(&'a self) -> DictIter<'a, K, V> {
         DictIter {
+            key_iter: self.keys.iter(),
+            val_iter: self.values.iter(),
+        }
+    }
+
+    pub fn iter_mut<'a>(&'a mut self) -> DictIterMut<'a, K, V> {
+        DictIterMut {
+            key_iter: self.keys.iter_mut(),
+            val_iter: self.values.iter_mut(),
+        }
+    }
+}
+
+impl<K, V> Into<DictIntoIter<K, V>> for Dictionary<K, V> {
+    fn into(self) -> DictIntoIter<K, V> {
+        DictIntoIter {
             key_iter: self.keys.into_iter(),
             val_iter: self.values.into_iter(),
         }
     }
 }
 
-impl<K, V> Into<DictIter<K, V>> for Dictionary<K, V> {
-    fn into(self) -> DictIter<K, V> {
-        DictIter {
-            key_iter: self.keys.into_iter(),
-            val_iter: self.values.into_iter(),
-        }
-    }
-}
-
-pub struct DictIter<K, V> {
+pub struct DictIntoIter<K, V> {
     key_iter: IntoIter<K>,
     val_iter: IntoIter<V>,
 }
 
 // Gets collect for free here
 // collect will return a Vec<(K,V)>
-impl<'a, K, V> Iterator for DictIter<K, V> {
+impl<'a, K, V> Iterator for DictIntoIter<K, V> {
     type Item = (K, V);
     fn next(&mut self) -> Option<Self::Item> {
         let next_key = self.key_iter.next();
         let next_val = self.val_iter.next();
-        debug_assert!(
-            (next_key.is_some() && next_val.is_some())
-                || (next_key.is_none() && next_val.is_none())
-        );
-        if next_key.is_some() {
-            let Some(k) = next_key else {
-                return None;
-            };
-            let Some(v) = next_val else { return None };
-            Some((k, v))
-        } else {
-            None
+        // make sure always Some, Some or None, None
+        #[cfg(debug_assertions)]
+        {
+            if next_key.is_some() {
+                debug_assert!(next_key.is_some() && next_val.is_some());
+            } else {
+                debug_assert!(next_key.is_none() && next_val.is_none());
+            }
+        }
+        match (next_key, next_val) {
+            (Some(key), Some(val)) => return Some((key, val)),
+            _ => return None,
         }
     }
 }
@@ -354,7 +358,7 @@ impl<'a, K, V> Iterator for DictIter<K, V> {
 impl<
         K: PartialOrd + PartialEq + Hash + Eq + Clone + Ord + Copy,
         V: Clone + Ord + PartialEq + PartialOrd + Eq,
-    > Into<Dictionary<K, V>> for DictIter<K, V>
+    > Into<Dictionary<K, V>> for DictIntoIter<K, V>
 {
     fn into(self) -> Dictionary<K, V> {
         // utility to go back to the Dictionary
@@ -383,11 +387,66 @@ impl<
 
 impl<K, V> IntoIterator for Dictionary<K, V> {
     type Item = (K, V);
-    type IntoIter = DictIter<K, V>;
-    fn into_iter(self) -> DictIter<K, V> {
-        DictIter {
+    type IntoIter = DictIntoIter<K, V>;
+    fn into_iter(self) -> DictIntoIter<K, V> {
+        DictIntoIter {
             key_iter: self.keys.into_iter(),
             val_iter: self.values.into_iter(),
+        }
+    }
+}
+
+pub struct DictIter<'a, K, V> {
+    key_iter: Iter<'a, K>,
+    val_iter: Iter<'a, V>,
+}
+
+impl<'a, K, V> Iterator for DictIter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_key = self.key_iter.next();
+        let next_val = self.val_iter.next();
+
+        // make sure always Some, Some or None, None
+        #[cfg(debug_assertions)]
+        {
+            if next_key.is_some() {
+                debug_assert!(next_key.is_some() && next_val.is_some());
+            } else {
+                debug_assert!(next_key.is_none() && next_val.is_none());
+            }
+        }
+
+        match (next_key, next_val) {
+            (Some(key), Some(val)) => return Some((key, val)),
+            _ => return None,
+        }
+    }
+}
+
+pub struct DictIterMut<'a, K, V> {
+    key_iter: IterMut<'a, K>,
+    val_iter: IterMut<'a, V>,
+}
+
+impl<'a, K, V> Iterator for DictIterMut<'a, K, V> {
+    type Item = (&'a mut K, &'a mut V);
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_key = self.key_iter.next();
+        let next_val = self.val_iter.next();
+
+        // make sure always Some, Some or None, None
+        #[cfg(debug_assertions)]
+        {
+            if next_key.is_some() {
+                debug_assert!(next_key.is_some() && next_val.is_some());
+            } else {
+                debug_assert!(next_key.is_none() && next_val.is_none());
+            }
+        }
+        match (next_key, next_val) {
+            (Some(key), Some(val)) => return Some((key, val)),
+            _ => return None,
         }
     }
 }
