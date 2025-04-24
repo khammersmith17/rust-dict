@@ -1,5 +1,5 @@
 use std::cmp::{PartialEq, PartialOrd};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
 use std::iter::{IntoIterator, Iterator};
@@ -112,11 +112,18 @@ impl<
 {
     type Output = Dictionary<K, V>;
     fn sub(self, rhs: Self) -> Self::Output {
-        // items in self that are not in rhs
-        let mut rhs_set: HashSet<K> = HashSet::with_capacity(rhs.keys.len());
-        for key in &self.keys {
-            rhs_set.insert(*key);
-        }
+        // thoughts here
+        // a lookup op on the keys vec would be O(N) for every lookup
+        // a set gives an O(1) lookup
+        // but now that I think about it, I can use the rhs key_map
+
+        /*
+                // items in self that are not in rhs
+                let mut rhs_set: HashSet<K> = HashSet::with_capacity(rhs.keys.len());
+                for key in &self.keys {
+                    rhs_set.insert(*key);
+                }
+        */
 
         let mut len = self.values.len();
         let capacity = len;
@@ -125,7 +132,7 @@ impl<
         let mut key_map = HashMap::with_capacity(len);
         let mut ind = 0;
         for key in &self.keys {
-            if rhs_set.contains(key) {
+            if rhs.key_map.contains_key(key) {
                 len -= 1;
             } else {
                 let val_ind = self.key_map[&key].clone();
