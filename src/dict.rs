@@ -1,8 +1,9 @@
 use std::cmp::{PartialEq, PartialOrd};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
 use std::iter::{IntoIterator, Iterator};
+use std::ops::{Add, Sub};
 use std::slice::{Iter, IterMut};
 use std::vec::IntoIter;
 
@@ -68,6 +69,80 @@ impl<
         }
         true
     }
+
+    fn ne(&self, rhs: &Self) -> bool {
+        !self.eq(rhs)
+    }
+}
+
+impl<
+        K: PartialOrd + PartialEq + Hash + Eq + Clone + Ord + Copy,
+        V: Clone + Ord + PartialEq + PartialOrd + Eq,
+    > Add<Dictionary<K, V>> for Dictionary<K, V>
+{
+    type Output = Dictionary<K, V>;
+    fn add(self, rhs: Self) -> Self::Output {
+        let len = self.values.len() + rhs.values.len();
+        let mut values: Vec<V> = Vec::with_capacity(len);
+        let mut keys: Vec<K> = Vec::with_capacity(len);
+        values.extend_from_slice(&self.values);
+        values.extend_from_slice(&rhs.values);
+        keys.extend(&self.keys);
+        keys.extend(&rhs.keys);
+
+        let mut key_map: HashMap<K, usize> = HashMap::with_capacity(len);
+        for (ind, key) in keys.iter().enumerate() {
+            key_map.insert(*key, ind);
+        }
+
+        Dictionary {
+            values,
+            keys,
+            key_map,
+            len,
+            capacity: len,
+        }
+    }
+}
+
+impl<
+        K: PartialOrd + PartialEq + Hash + Eq + Clone + Ord + Copy,
+        V: Clone + Ord + PartialEq + PartialOrd + Eq,
+    > Sub<Dictionary<K, V>> for Dictionary<K, V>
+{
+    type Output = Dictionary<K, V>;
+    fn sub(self, rhs: Self) -> Self::Output {
+        // items in self that are not in rhs
+        let mut rhs_set: HashSet<K> = HashSet::with_capacity(rhs.keys.len());
+        for key in &self.keys {
+            rhs_set.insert(*key);
+        }
+
+        let mut len = self.values.len();
+        let capacity = len;
+        let mut keys = Vec::with_capacity(len);
+        let mut values = Vec::with_capacity(len);
+        let mut key_map = HashMap::with_capacity(len);
+        let mut ind = 0;
+        for key in &self.keys {
+            if rhs_set.contains(key) {
+                len -= 1;
+            } else {
+                let val_ind = self.key_map[&key].clone();
+                keys.push(*key);
+                values.push(self.values[val_ind].clone());
+                key_map.insert(*key, ind);
+                ind += 1;
+            }
+        }
+        Dictionary {
+            values,
+            keys,
+            len,
+            capacity,
+            key_map,
+        }
+    }
 }
 
 impl<
@@ -101,7 +176,11 @@ impl<
     /// Add a key value pair to the dictionary.
     /// This will be pushed to the end of the dictionary.
     /// This will be resized when the dictionary is at full capacity.
-    pub fn push_back(&mut self, key: K, value: V) {
+    pub fn push_back(&mut self, key: K, value: V) -> Option<V> {
+        // check to see if the key is already in the dictionary
+        if self.has_key(&key) {
+            return None;
+        }
         // check to see if dict is at capacity
         if self.len == self.capacity {
             self.update_capacity();
@@ -111,7 +190,8 @@ impl<
         // new len - 1 -> new index
         self.key_map.insert(key, self.len);
         self.len += 1;
-        self.values.push(value);
+        self.values.push(value.clone());
+        Some(value)
     }
 
     fn update_capacity(&mut self) {
@@ -166,17 +246,21 @@ impl<
     }
 
     /// Insert values to a particular index
-    pub fn insert(&mut self, key: K, value: V, index: usize) {
+    pub fn insert(&mut self, key: K, value: V, index: usize) -> Option<V> {
+        if self.has_key(&key) {
+            return None;
+        }
         // insert key and value at i
         // then push_back the index map
         // increment all > i
-        self.values.insert(index, value);
+        self.values.insert(index, value.clone());
         self.keys.insert(index, key);
 
         for key in &self.keys[index + 1..] {
             let i = self.key_map.get_mut(&key).unwrap();
             *i += 1;
         }
+        Some(value)
     }
 
     /// get a reference to the colleciton of values in the dictionary
@@ -301,6 +385,10 @@ impl<
         }
         // recompute the key value index map
         self.recompute_map();
+    }
+
+    fn has_key(&self, key: &K) -> bool {
+        return self.key_map.contains_key(key);
     }
 
     pub fn iter<'a>(&'a self) -> DictIter<'a, K, V> {
